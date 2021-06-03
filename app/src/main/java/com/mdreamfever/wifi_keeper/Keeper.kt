@@ -6,14 +6,13 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.ConnectivityManager
+import android.net.Network
 import android.net.NetworkCapabilities
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
-import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.*
@@ -72,7 +71,7 @@ class Keeper : Service(), CoroutineScope {
         return launch {
             withContext(Dispatchers.IO) {
                 while (true) {
-                    if (getConnectionType(this@Keeper) != 2) {
+                    if (bindNetwork(this@Keeper)) {
                         callback("非WIFI网络")
                         delay(10 * 1000)
                         continue
@@ -92,6 +91,7 @@ class Keeper : Service(), CoroutineScope {
                         }
                     } catch (e: SocketTimeoutException) {
                         isConnectTimeOut = true
+                        Log.i(tag, "connect timeout")
                     } catch (e: Exception) {
                         Log.e(tag, e.message ?: "an error occured")
                         callback(e.message)
@@ -103,43 +103,31 @@ class Keeper : Service(), CoroutineScope {
         }
     }
 
-    private fun getConnectionType(context: Context): Int {
-        var result = 0 // Returns connection type. 0: none; 1: mobile data; 2: wifi
-        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager?
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            cm?.run {
-                cm.getNetworkCapabilities(cm.activeNetwork)?.run {
-                    when {
-                        hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> {
-                            result = 2
-                        }
-                        hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> {
-                            result = 1
-                        }
-                        hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> {
-                            result = 3
-                        }
-                    }
-                }
+    private fun bindNetwork(context: Context): Boolean {
+        getWifiNetwork(context)?.let {
+            val connectivityManager =
+                getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                connectivityManager.bindProcessToNetwork(it)
+            } else {
+                ConnectivityManager.setProcessDefaultNetwork(it)
             }
-        } else {
-            cm?.run {
-                cm.activeNetworkInfo?.run {
-                    when (type) {
-                        ConnectivityManager.TYPE_WIFI -> {
-                            result = 2
-                        }
-                        ConnectivityManager.TYPE_MOBILE -> {
-                            result = 1
-                        }
-                        ConnectivityManager.TYPE_VPN -> {
-                            result = 3
-                        }
-                    }
+            return false
+        }
+        return true
+    }
+
+    private fun getWifiNetwork(context: Context): Network? {
+        val connectivityManager =
+            context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        connectivityManager.allNetworks.forEach { network ->
+            connectivityManager.getNetworkCapabilities(network)?.run {
+                if (hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+                    return network
                 }
             }
         }
-        return result
+        return null
     }
 
     override fun onCreate() {
