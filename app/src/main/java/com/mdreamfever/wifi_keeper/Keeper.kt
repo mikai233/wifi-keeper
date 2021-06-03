@@ -1,9 +1,6 @@
 package com.mdreamfever.wifi_keeper
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
-import android.app.Service
+import android.app.*
 import android.content.Context
 import android.content.Intent
 import android.graphics.BitmapFactory
@@ -53,9 +50,15 @@ class Keeper : Service(), CoroutineScope {
             }
             return withContext(Dispatchers.IO) {
                 try {
-                    schoolNetworkApi.logoutAsync().await().also(callback)
+                    schoolNetworkApi.logoutAsync().await().also {
+                        withContext(Dispatchers.Main) {
+                            callback(it)
+                        }
+                    }
                 } catch (e: Exception) {
-                    callback(e.message)
+                    withContext(Dispatchers.Main) {
+                        callback(e.message)
+                    }
                     Log.e(tag, "登出错误")
                     null
                 }
@@ -72,20 +75,28 @@ class Keeper : Service(), CoroutineScope {
             withContext(Dispatchers.IO) {
                 while (true) {
                     if (bindNetwork(this@Keeper)) {
-                        callback("非WIFI网络")
+                        withContext(Dispatchers.Main) {
+                            callback("非WIFI网络")
+                        }
                         delay(10 * 1000)
                         continue
                     }
                     try {
                         schoolNetworkApi.getNetworkInfoAsync().await().also { info ->
                             Log.i(tag, info.toString())
-                            callback(info)
+                            withContext(Dispatchers.Main) {
+                                callback(info)
+                            }
                             info.status.takeIf { it == 0 }?.let {
                                 Log.i(tag, "login $loginInfo")
-                                callback(loginInfo)
+                                withContext(Dispatchers.Main) {
+                                    callback(loginInfo)
+                                }
                                 schoolNetworkApi.loginAsync(loginInfo.toMap()).await().also {
                                     Log.i(tag, it.toString())
-                                    callback(info)
+                                    withContext(Dispatchers.Main) {
+                                        callback(info)
+                                    }
                                 }
                             }
                         }
@@ -94,7 +105,9 @@ class Keeper : Service(), CoroutineScope {
                         Log.i(tag, "connect timeout")
                     } catch (e: Exception) {
                         Log.e(tag, e.message ?: "an error occured")
-                        callback(e.message)
+                        withContext(Dispatchers.Main) {
+                            callback(e.message)
+                        }
                     } finally {
                         delay(10 * 1000)
                     }
@@ -148,7 +161,7 @@ class Keeper : Service(), CoroutineScope {
         val notification = NotificationCompat.Builder(this, "wifi_keeper")
             .setContentTitle("WIFI Keeper")
             .setContentText("请不要杀死此程序")
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.mipmap.ic_launcher_foreground)
             .setLargeIcon(BitmapFactory.decodeResource(resources, R.mipmap.ic_launcher))
             .setContentIntent(pi)
             .build()
